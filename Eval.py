@@ -1,5 +1,5 @@
 import pandas as pd
-import textstat
+
 from easse.cli import get_orig_and_refs_sents, get_sys_sents
 from easse.sari import corpus_sari
 from easse.fkgl import corpus_fkgl
@@ -14,10 +14,11 @@ def run(DATASET_NAME,METHOD):
     print(f"Loaded {len(predictions)} predictions.")
 
     # ==========================================
-    # 1. Load the Test Set (Sources & Refs)
+    # 2. Load the ASSET Test Set (Sources & Refs)
     # ==========================================
     print(f"Loading {DATASET_NAME} test set references...")
 
+    # In easse, the task name for the ASSET test set is "asset_test"
     sources, references = get_orig_and_refs_sents(f"{DATASET_NAME}_test",
                                                   orig_sents_path=None,
                                                   refs_sents_paths=None
@@ -25,27 +26,20 @@ def run(DATASET_NAME,METHOD):
     print(f"Loaded {len(sources)} sentences.")
     print(f"Found {len(references)} reference sets (annotators).")
     # ==========================================
-    # 2. Calculate Metrics
+    # 3. Calculate Metrics
     # ==========================================
     print("\nCalculating metrics...\n")
 
-    try:
-        sari_score = corpus_sari(sources, predictions, references)
-    except Exception as e:
-        print(f"SARI Calculation Failed: {e}")
-        sari_score = 0.0
 
-    # --- 1. FKGL ---
-    fkgl_scores = [textstat.textstat.flesch_kincaid_grade(p) for p in predictions]
-    mean_fkgl = np.mean(fkgl_scores)
+    sari_score = corpus_sari(sources, predictions, references)
+    fkgl_score = corpus_fkgl(predictions)
 
-    # 2. Length
+
     lengths = [len(p.split()) for p in predictions]
     mean_length = np.mean(lengths)
 
     row_major_refs = list(map(list, zip(*references)))
 
-    # --- 3. BERTScore ---
     try:
         print("Computing BERTScore...")
         bertscore = evaluate.load("bertscore")
@@ -55,7 +49,6 @@ def run(DATASET_NAME,METHOD):
         print(f"BERTScore failed: {e}")
         bertscore_f1_mean = 0.0
 
-    # --- 4. MeaningBERT ---
     try:
         print("Computing MeaningBERT (this may take time)...")
         meaning_bert = evaluate.load("davebulaval/meaningbert")
@@ -84,30 +77,27 @@ def run(DATASET_NAME,METHOD):
 
     sacrebleu = evaluate.load("sacrebleu")
 
-    # 5. Standard BLEU (Output vs Human References)
     # SacreBLEU requires Row-Major references: [ [ref1_s1, ref2_s1], [ref1_s2, ref2_s2] ]
     bleu_res = sacrebleu.compute(predictions=predictions, references=row_major_refs)
     bleu_score = bleu_res["score"]  # Scale is 0 to 100
 
-    # 6. Source BLEU (Output vs Original Input)
-    # Treat the original complex source sentence as the single reference
+
     sources_as_refs = [[s] for s in sources]
     bleu_oi_res = sacrebleu.compute(predictions=predictions, references=sources_as_refs)
     bleu_oi_score = bleu_oi_res["score"]
 
-    # 7. iBLEU (Interpolated BLEU)
+    # 8. iBLEU (Interpolated BLEU)
     alpha = 0.9
     ibleu_score = (alpha * bleu_score) - ((1 - alpha) * bleu_oi_score)
 
-    # 8. FKBLEU
-    # Ensure 'mean_fkgl' has been calculated earlier in your script via easse.fkgl
-    fkbleu_score = ibleu_score - mean_fkgl
+    # 9. FKBLEU
+    fkbleu_score = ibleu_score - fkgl_score
 
     print("\n" + "=" * 30)
     print(f"FINAL EVALUATION RESULTS ({DATASET_NAME} {METHOD} )")
     print("=" * 30)
     print(f"SARI Score        :\t{sari_score:.2f}")
-    print(f"FKGL (Grade)      :\t{mean_fkgl:.2f}")
+    print(f"FKGL (Grade)      :\t{fkgl_score:.2f}")
     print(f"Avg Length (words) :\t{mean_length:.1f}")
     print(f"BLEU Score        :\t{bleu_score:.2f}")
     print(f"iBLEU Score       :\t{ibleu_score:.2f}")
@@ -136,8 +126,8 @@ def run(DATASET_NAME,METHOD):
 
 
 
-ds=["turkcorpus","asset"]  # Reference Datasets
-mts = ["proposed","Dress-Ls","Dress","Hybrid","ACCESS"]
+ds=["turkcorpus","asset"]  # asset
+mts = ["predictions","Dress","Dress-Ls","Hybrid","ACCESS"]
 
 for d in ds:
     for m in mts:
