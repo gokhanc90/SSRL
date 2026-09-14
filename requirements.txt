@@ -1,0 +1,25 @@
+# Core RL / LLM stack
+torch
+transformers
+trl==1.7.1            # RLOOTrainer/GRPOTrainer reward_funcs API used here
+peft
+datasets
+accelerate
+bitsandbytes         # 4-bit NF4 quantization (CUDA, Turing/sm_75+ GPUs)
+
+# Metrics / evaluation
+evaluate
+bert_score           # BERTScore
+sacrebleu            # BLEU / iBLEU / FKBLEU
+textstat             # FKGL readability
+sacremoses           # tokenization (easse dependency)
+nltk                 # punkt/punkt_tab tokenizer (easse dependency)
+
+# Data / analysis / plots
+pandas
+numpy
+scipy                # paired t-test, Wilcoxon, TRisk p-values
+matplotlib           # TRisk 2x2 plots
+
+# NOTE: `easse` (SARI/FKGL + the ASSET & TurkCorpus test sets and baseline
+# system outputs) is installed separately from source -- see README.

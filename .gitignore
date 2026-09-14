@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated artifacts (reproducible via the scripts)
+runs/            # LoRA adapters from training
+logs/            # run_grid.sh per-run logs
+results/         # metric tables + per-sentence CSVs + TRisk_Output/
+figures/         # TRisk_Plot_*.eps
+inference_out/
+
+# External (installed from source)
+easse/
+
+# System_Output/ IS tracked (the shipped full-system outputs)

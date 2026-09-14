@@ -1,4 +1,5 @@
 import difflib
+import os
 
 import evaluate
 import numpy
@@ -7,11 +8,11 @@ import torch
 from transformers import AutoTokenizer, BitsAndBytesConfig, AutoModelForCausalLM
 from peft import LoraConfig
 from datasets import  Dataset
-from trl import  GRPOConfig, GRPOTrainer
+from trl import  GRPOConfig, GRPOTrainer, RLOOConfig, RLOOTrainer
 import textstat
 
 from easse.sari import corpus_sari
-from trl.models import prepare_model_for_kbit_training
+from peft import prepare_model_for_kbit_training
 
 import re
 
@@ -38,14 +39,39 @@ def clean_output(text):
         cleaned = cleaned.split("\n")[0]
 
     return cleaned.strip()
+# ASSET data: prefer a local ./asset/dataset copy if present, else fall back to the
+# copy bundled inside the installed easse package (machine-independent, CWD-independent).
+ASSET_DIR_CANDIDATES = [
+    "asset/dataset",           # original training-machine layout (relative to CWD)
+    "../../asset/dataset",     # when run from a nested scripts dir (e.g. ExpandedExp/GRPOSS)
+]
+
+
+def resolve_asset_dir():
+    candidates = list(ASSET_DIR_CANDIDATES)
+    # Robust fallback: ASSET files ship inside the easse package resources.
+    try:
+        import easse
+        candidates.append(os.path.join(
+            os.path.dirname(easse.__file__),
+            "resources", "data", "test_sets", "asset"))
+    except Exception:
+        pass
+    for d in candidates:
+        if os.path.exists(os.path.join(d, f"asset.{SPLIT}.orig")):
+            return d
+    return candidates[0]
+
+
 def create_asset_dataset():
-    # 1. Download Files if missing
+    asset_dir = resolve_asset_dir()
+    print(f"Using ASSET data dir: {asset_dir}")
     files = {
-        "orig": f"asset/dataset/asset.{SPLIT}.orig",
+        "orig": f"{asset_dir}/asset.{SPLIT}.orig",
     }
     # Add the 10 reference files
     for i in range(10):
-        files[f"simp.{i}"] = f"asset/dataset/asset.{SPLIT}.simp.{i}"
+        files[f"simp.{i}"] = f"{asset_dir}/asset.{SPLIT}.simp.{i}"
 
     # 2. Load Content
     print("Loading ASSET dataset...")
@@ -198,20 +224,31 @@ def sari_reward_func(completions, complex_raw, simple, **kwargs):
 
 
 
-def run(outputfolder,rewards):
+# Model registry: local paths (both Llama-3.2 Instruct -> same tokenizer/chat template/EOS)
+MODELS = {
+    "llama-3b": "meta-llama/Llama-3.2-3B-Instruct",
+    "llama-1b": "meta-llama/Llama-3.2-1B-Instruct",
+}
+
+# Trainer registry: (Config class, Trainer class). Both share the same reward_funcs interface.
+TRAINERS = {
+    "grpo": (GRPOConfig, GRPOTrainer),
+    "rloo": (RLOOConfig, RLOOTrainer),
+}
+
+
+def run(outputfolder, rewards, model_key="llama-3b", trainer_type="grpo",
+        device="cuda", smoke=False):
     global SPLIT, meaning_bert, tokenizer
     # ... [Load Model, Tokenizer, and Dataset as defined in previous steps] ...
     # ==========================================
     # 1. Configuration & Model Loading
     # ==========================================
 
-    MODEL_NAME = "./Llama-3.2-3B-Instruct"
-
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float32,
-    )
+    MODEL_NAME = MODELS[model_key]
+    use_cuda = (device == "cuda") and torch.cuda.is_available()
+    if device == "cuda" and not use_cuda:
+        print("[warn] CUDA requested but not available -> running on CPU (no quantization).")
 
     # Load Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -227,14 +264,28 @@ def run(outputfolder,rewards):
         task_type="CAUSAL_LM"
     )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        quantization_config=bnb_config,
-        device_map="auto",
-        attn_implementation="sdpa",  # Optional: Faster attention for Llama-3
-        torch_dtype=torch.float32
-    )
-    model = prepare_model_for_kbit_training(model)
+    if use_cuda:
+        # Production GPU path: 4-bit NF4 quantization (bitsandbytes needs CUDA).
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float32,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            quantization_config=bnb_config,
+            device_map="auto",
+            attn_implementation="sdpa",  # Optional: Faster attention for Llama-3
+            torch_dtype=torch.float32
+        )
+        model = prepare_model_for_kbit_training(model)
+    else:
+        # CPU smoke-test path: no bitsandbytes (unsupported on CPU / old GPUs), plain fp32.
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            attn_implementation="sdpa",
+            torch_dtype=torch.float32
+        )
 
     model.generation_config.do_sample = True
     model.generation_config.temperature = 0.9
@@ -264,42 +315,69 @@ def run(outputfolder,rewards):
     # Filter length outliers to stabilize training
     dataset = dataset.filter(lambda x: 5 < len(x['complex_raw'].split()) < 100)
 
+    # Smoke test: shrink to a tiny subset just to validate the pipeline end-to-end.
+    if smoke:
+        n = min(8, len(dataset))
+        dataset = dataset.select(range(n))
+        print(f"[smoke] Using {n} examples for end-to-end test.")
+
     # ==========================================
 
-    meaning_bert = evaluate.load("davebulaval/meaningbert")
+    # Only load MeaningBERT (a model) if the reward that needs it is actually used.
+    meaning_bert = None
+    if meaningBert_reward_func in rewards:
+        meaning_bert = evaluate.load("davebulaval/meaningbert")
 
 
     # ==========================================
-    # 4. GRPO Trainer Initialization
+    # 4. Trainer Initialization (GRPO or RLOO)
     # ==========================================
-    training_args = GRPOConfig(
-        output_dir=outputfolder,
-        learning_rate=1e-5,
-        per_device_train_batch_size=4,
-        gradient_accumulation_steps=1,
-        num_generations=4,  
-        max_completion_length=64,  
-        bf16=False,  
-        logging_steps=1000,
+    # Same config kwargs for both -> fair GRPO-vs-RLOO comparison.
+    ConfigCls, TrainerCls = TRAINERS[trainer_type]
 
-        num_train_epochs=3,  
-        save_strategy="epoch",  
+    if smoke:
+        # Minimal config: few steps, small batch (num_generations must divide batch).
+        cfg_kwargs = dict(
+            output_dir=outputfolder,
+            learning_rate=1e-5,
+            per_device_train_batch_size=2,
+            gradient_accumulation_steps=1,
+            num_generations=2,
+            max_completion_length=32,
+            bf16=False,
+            logging_steps=1,
+            max_steps=4,
+            save_strategy="no",
+        )
+    else:
+        cfg_kwargs = dict(
+            output_dir=outputfolder,
+            learning_rate=1e-5,
+            per_device_train_batch_size=4,
+            gradient_accumulation_steps=1,
+            num_generations=4,
+            max_completion_length=64,
+            bf16=False,
+            logging_steps=1000,
+            num_train_epochs=3,
+            save_strategy="epoch",
+        )
 
-    )
+    training_args = ConfigCls(**cfg_kwargs)
 
-    trainer = GRPOTrainer(
-        model=model,  
+    trainer = TrainerCls(
+        model=model,
         reward_funcs=rewards,
         args=training_args,
         train_dataset=dataset,
         peft_config=peft_config,
-        processing_class=tokenizer, 
+        processing_class=tokenizer,
     )
 
     # ==========================================
     # 5. Train
     # ==========================================
-    print("Starting GRPO Training...")
+    print(f"Starting {trainer_type.upper()} Training on {MODEL_NAME}...")
     trainer.train()
     print("Training Complete.")
     print("Saving final model...")
@@ -318,10 +396,18 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--Output", help="Output folder for saving Model")
 parser.add_argument("-r", "--Reward", help="List of Reward functions with comma separated: sari_reward_func,meaningBert_reward_func")
+parser.add_argument("-m", "--Model", default="llama-3b", choices=list(MODELS.keys()),
+                    help="Model key: llama-3b | llama-1b")
+parser.add_argument("-t", "--Trainer", default="grpo", choices=list(TRAINERS.keys()),
+                    help="Trainer type: grpo | rloo")
+parser.add_argument("-d", "--Device", default="cuda", choices=["cuda", "cpu"],
+                    help="cuda: 4-bit GPU (production) | cpu: no-quant smoke test")
+parser.add_argument("-s", "--Smoke", action="store_true",
+                    help="Smoke test: tiny subset + few steps (batch 2, num_gen 2)")
 
 args = parser.parse_args()
 print(args)
 rewards = [eval(a) for a in args.Reward.split(",")]
 if args.Output:
     print("Output:", args.Output)
-run(args.Output, rewards)
+run(args.Output, rewards, args.Model, args.Trainer, args.Device, args.Smoke)
