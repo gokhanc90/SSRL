@@ -1,7 +1,7 @@
 # Core RL / LLM stack
 torch
 transformers
-trl==1.7.1            # RLOOTrainer/GRPOTrainer reward_funcs API used here
+trl==0.25.1           # version used for the reported runs (default KL beta: GRPO 0.0, RLOO 0.05)
 peft
 datasets
 accelerate

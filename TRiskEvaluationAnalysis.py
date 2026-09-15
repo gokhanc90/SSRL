@@ -9,7 +9,7 @@ from TRiskEvaluation import TRisk
 # ==========================================
 DATASETS = ["asset", "turkcorpus"]
 BASELINES = ["ACCESS", "Dress", "Dress-Ls", "Hybrid"]
-# Composite (SARI+MB) models are the "proposed" targets, evaluated for both datasets.
+# Combined-reward (SARI+MB) models are the "proposed" targets, evaluated for both datasets.
 TARGET_METHODS = [
     "llama1b_grpo_sari-mb",
     "llama3b_grpo_sari-mb",

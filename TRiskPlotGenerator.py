@@ -17,12 +17,12 @@ OUT_DIR = os.environ.get("TRISK_FIG_DIR", "figures")   # where the .eps files ar
 CRITERION = "meaningbert"
 
 DATASETS = [("asset", "ASSET"), ("turkcorpus", "TurkCorpus")]
-# 2x2 grid: the four composite (SARI+MB) models
+# 2x2 grid: the four combined-reward (SARI+MB) models
 MODELS = [
-    ("llama1b_grpo_sari-mb", "LLaMA-1B-GRPO"),
-    ("llama1b_rloo_sari-mb", "LLaMA-1B-RLOO"),
-    ("llama3b_grpo_sari-mb", "LLaMA-3B-GRPO"),
-    ("llama3b_rloo_sari-mb", "LLaMA-3B-RLOO"),
+    ("llama1b_grpo_sari-mb", "Llama-1B-GRPO"),
+    ("llama1b_rloo_sari-mb", "Llama-1B-RLOO"),
+    ("llama3b_grpo_sari-mb", "Llama-3B-GRPO"),
+    ("llama3b_rloo_sari-mb", "Llama-3B-RLOO"),
 ]
 BASELINES = [("Hybrid", "Hybrid"), ("Dress", "DRESS"), ("Dress-Ls", "DRESS-Ls"), ("ACCESS", "ACCESS")]
 COLORS = {"Hybrid": "#1f77b4", "DRESS": "#ff7f0e", "DRESS-Ls": "#2ca02c", "ACCESS": "#d62728"}

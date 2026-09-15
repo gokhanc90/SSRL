@@ -1,19 +1,20 @@
 # A Comprehensive Study of Sentence Simplification with Critic-Free Reinforcement Learning
 
 Reproduction code for a multi-objective, **critic-free** reinforcement-learning approach to
-sentence simplification. The framework fine-tunes small LLaMA models with a composite reward
+sentence simplification. The framework fine-tunes small Llama models with a combined reward
 (SARI + MeaningBERT with an output-length brevity term) and studies the problem along **three
 design axes**:
 
 | Axis | Values |
 |------|--------|
-| Model size | LLaMA-3.2 **1B** / **3B** (Instruct) |
+| Model size | Llama-3.2 **1B** / **3B** (Instruct) |
 | RL trainer (critic-free) | **GRPO** / **RLOO** |
-| Reward | **SARI** / **MeaningBERT (MB)** / **SARI+MB** (composite = full system) |
+| Reward | **SARI** / **MeaningBERT (MB)** / **SARI+MB** (combined = full system) |
 
 Efficiency: 4-bit NF4 quantization + LoRA, so the full 2×2×3 grid runs on a single consumer GPU.
-Both trainers are configured identically for a fair comparison, and gains are validated with a
-risk-sensitive **TRisk** analysis (whose risk-neutral level equals a paired-samples *t*-test).
+Both trainers share the same learning rate, batch size, and number of sampled generations, and gains
+are validated with a risk-sensitive **TRisk** analysis (whose risk-neutral level equals a
+paired-samples *t*-test). The KL coefficient is left at the `trl` defaults (see Installation).
 
 ## Repository structure
 
@@ -24,17 +25,17 @@ risk-sensitive **TRisk** analysis (whose risk-neutral level equals a paired-samp
 ├── generate_outputs.py         # inference: trained adapters -> System_Output/<run>.txt (+ quick metrics)
 ├── Eval.py                     # SARI/BLEU/iBLEU/FKBLEU/BERTScore/MeaningBERT tables + per-sentence CSVs
 ├── TRiskEvaluation.py          # TRisk statistic (risk-sensitive), alpha=0 == paired t-test
-├── TRiskEvaluationAnalysis.py  # TRisk tables (alpha 0..5) for the composite models vs baselines
+├── TRiskEvaluationAnalysis.py  # TRisk tables (alpha 0..5) for the combined-reward models vs baselines
 ├── TRiskPlotGenerator.py       # TRisk 2x2 curve plots per dataset
 ├── requirements.txt
-└── System_Output/              # full-system (SARI+MB composite) outputs for the 4 backbones
+└── System_Output/              # full-system (SARI+MB combined) outputs for the 4 backbones
     ├── llama1b_grpo_sari-mb.txt
     ├── llama1b_rloo_sari-mb.txt
     ├── llama3b_grpo_sari-mb.txt
     └── llama3b_rloo_sari-mb.txt
 ```
 
-> **Note on `System_Output/`.** Only the four **full-system** (composite `SARI+MB`) outputs are
+> **Note on `System_Output/`.** Only the four **full-system** (combined `SARI+MB`) outputs are
 > shipped here. The reward-ablation outputs (`*_sari.txt`, `*_mb.txt`) are not included; regenerate
 > them with `run_grid.sh` + `generate_outputs.py` if you want to reproduce the ablation tables.
 
@@ -45,6 +46,11 @@ python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+**TRL version and KL coefficient.** The reported runs used `trl==0.25.1` (pinned in
+`requirements.txt`). `train_asset.py` does not set the KL coefficient `beta`, so the `trl` defaults
+apply: `0.0` for GRPO (no KL term, no reference model) and `0.05` for RLOO (KL penalty subtracted
+from the reward).
 
 **EASSE** (SARI/FKGL metrics + the ASSET & TurkCorpus test sets and classical baseline outputs) is
 installed from source:
@@ -110,6 +116,3 @@ python TRiskPlotGenerator.py          # -> figures/TRisk_Plot_{asset,turkcorpus}
 
 ASSET and TurkCorpus share identical source sentences, so one prediction file per system is scored
 against each dataset's own references.
-
-
-```
