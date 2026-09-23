@@ -77,7 +77,9 @@ def compute_row(method, predictions, sources, references, refs_row_major, metric
     bleu_oi = metrics["sacrebleu"].compute(predictions=predictions, references=[[s] for s in sources])["score"]
     alpha = 0.9
     ibleu_score = (alpha * bleu_score) - ((1 - alpha) * bleu_oi)
-    fkbleu_score = ibleu_score - fkgl_score
+    # FKBLEU as defined by Xu et al. (2016): iBLEU scaled by sigmoid(FKGL(input) - FKGL(output))
+    fkgl_in = corpus_fkgl(sources)
+    fkbleu_score = ibleu_score / (1.0 + np.exp(-(fkgl_in - fkgl_score)))
 
     row = {
         "Method": method,

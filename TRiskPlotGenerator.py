@@ -26,6 +26,8 @@ MODELS = [
 ]
 BASELINES = [("Hybrid", "Hybrid"), ("Dress", "DRESS"), ("Dress-Ls", "DRESS-Ls"), ("ACCESS", "ACCESS")]
 COLORS = {"Hybrid": "#1f77b4", "DRESS": "#ff7f0e", "DRESS-Ls": "#2ca02c", "ACCESS": "#d62728"}
+# markers give every baseline a pattern in addition to its colour (colour-blind readers, B/W print)
+MARKERS = {"Hybrid": "o", "DRESS": "s", "DRESS-Ls": "^", "ACCESS": "D"}
 ALPHAS = np.linspace(0, 5, 50)
 
 plt.rcParams.update({"font.size": 11})
@@ -57,7 +59,8 @@ def main():
                 if len(base) != len(tgt):
                     continue
                 curve = [TRisk(tgt, base, a)[0] for a in ALPHAS]
-                ax.plot(ALPHAS, curve, label=blab, color=COLORS[blab], linewidth=1.6)
+                ax.plot(ALPHAS, curve, label=blab, color=COLORS[blab], linewidth=1.6,
+                        marker=MARKERS[blab], markevery=7, markersize=5)
 
             ax.axhline(0, color="black", ls="--", lw=0.8, alpha=0.7)
             ax.axhline(2, color="gray", ls=":", lw=1.0)
